@@ -59,6 +59,93 @@ dataset/
     └── freshbananas/
 ```
 
+### Download Dataset with Kaggle API
+
+Run this once before Phase 1. It downloads the Kaggle dataset, extracts it, and places the files into the `dataset/` folder expected by the notebooks.
+
+#### 1. Install Kaggle API
+
+```bash
+pip install kaggle
+```
+
+#### 2. Add Kaggle credentials
+
+1. Go to Kaggle account settings: `https://www.kaggle.com/settings`
+2. Create/download an API token. This downloads `kaggle.json`.
+3. Put `kaggle.json` in:
+
+```text
+C:\Users\<your-username>\.kaggle\kaggle.json
+```
+
+For this machine, the expected path is:
+
+```text
+C:\Users\Rafael Po\.kaggle\kaggle.json
+```
+
+#### 3. Notebook download cell
+
+Add/run this near the top of the notebook before feature extraction:
+
+```python
+from pathlib import Path
+import zipfile
+import shutil
+
+from kaggle.api.kaggle_api_extended import KaggleApi
+
+DATASET_SLUG = "sriramr/fruits-fresh-and-rotten-for-classification"
+PROJECT_ROOT = Path(r"C:\Users\Rafael Po\Kuliah\Semester 6\DeepLearning\fruit-grading")
+RAW_DIR = PROJECT_ROOT / "raw"
+DATASET_ROOT = PROJECT_ROOT / "dataset"
+
+RAW_DIR.mkdir(exist_ok=True)
+DATASET_ROOT.mkdir(exist_ok=True)
+
+api = KaggleApi()
+api.authenticate()
+
+api.dataset_download_files(
+    DATASET_SLUG,
+    path=str(RAW_DIR),
+    unzip=False,
+)
+
+zip_path = RAW_DIR / "fruits-fresh-and-rotten-for-classification.zip"
+extract_dir = RAW_DIR / "fruits-fresh-and-rotten-for-classification"
+
+if not extract_dir.exists():
+    with zipfile.ZipFile(zip_path, "r") as zip_ref:
+        zip_ref.extractall(extract_dir)
+
+# Kaggle zip usually contains this nested folder.
+source_root = extract_dir / "dataset"
+if not source_root.exists():
+    source_root = extract_dir
+
+for split in ["train", "test"]:
+    for fruit_folder in ["freshapples", "freshoranges", "freshbananas"]:
+        src = source_root / split / fruit_folder
+        dst = DATASET_ROOT / split / fruit_folder
+        dst.parent.mkdir(parents=True, exist_ok=True)
+
+        if dst.exists():
+            shutil.rmtree(dst)
+
+        shutil.copytree(src, dst)
+
+print("Dataset ready:")
+for split in ["train", "test"]:
+    for fruit_folder in ["freshapples", "freshoranges", "freshbananas"]:
+        folder = DATASET_ROOT / split / fruit_folder
+        count = len(list(folder.glob("*")))
+        print(f"{split}/{fruit_folder}: {count} images")
+```
+
+After this cell succeeds, `DATASET_ROOT = "dataset"` can stay unchanged in the rest of the notebook.
+
 ---
 
 ## Project Structure
