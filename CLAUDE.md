@@ -12,6 +12,8 @@ This project builds an automated **fruit quality grading system** using a two-ph
 - **No spoiled/diseased fruit detection** — the lecturer confirmed this is too visible to the human eye; focus is on grading _fresh_ fruit quality only.
 - **Cluster-then-classify approach** — K-Means acts as an automatic labeler (pseudo-labeling), removing human labeling bias and scaling to large datasets.
 - **Per-fruit clustering** — K-Means is run separately for each fruit type to ensure it finds quality variation _within_ a fruit, not differences _between_ fruit types.
+- **Apple color-variety handling** — apple clustering excludes strong color-identity features (`hue_mean`, `r_mean`, `g_mean`, `b_mean`) so green apples are not automatically treated as lower quality. This reduces the chance that K-Means separates red vs green apple varieties instead of quality.
+- **Clustering validation added** — Step 1 now includes a validation cell that reports Silhouette score, Davies-Bouldin index, an elbow plot, and a PASS/CHECK summary per fruit.
 
 ---
 
@@ -171,6 +173,7 @@ fruit-grading/
 │       ├── apple_pca.png              ← PCA cluster visualization
 │       ├── orange_pca.png
 │       ├── banana_pca.png
+│       ├── clustering_validation_elbow.png
 │       ├── feature_distributions.png
 │       ├── grade_distribution.png
 │       └── *_cluster_samples.png
@@ -188,6 +191,17 @@ fruit-grading/
 Extracts 18 visual features per image and runs K-Means (k=3) per fruit to generate grade labels.
 
 ### Features Extracted (18 total)
+
+All 18 features are still extracted and saved to `output/kmeans_features.csv`.
+
+For **apple K-Means clustering only**, the notebook excludes:
+
+- `hue_mean`
+- `r_mean`
+- `g_mean`
+- `b_mean`
+
+Reason: the apple dataset can contain both red and green varieties. Green apples may be Granny Smith-style apples, not bad-quality apples. Removing these color-identity features helps the clustering focus more on quality signals such as brightness, saturation, color uniformity, texture smoothness, blemish ratio, edge density, and shape.
 
 **Color (10 features)**
 
@@ -226,6 +240,25 @@ score = +0.25 * (val_mean / 255)           # brightness
 
 Highest score → Grade A, middle → Grade B, lowest → Grade C.
 
+### Clustering Validation
+
+Step 1 now includes a **Clustering Validation** cell immediately after the K-Means cell.
+
+It automatically computes:
+
+- **Silhouette score per fruit** — higher is better; the notebook uses `>= 0.20` as a practical PASS threshold for exploratory image pseudo-labeling.
+- **Davies-Bouldin index per fruit** — lower is better; the notebook uses `<= 2.00` as a practical PASS threshold.
+- **Elbow plot** — recomputes inertia for `k=2` through `k=8` for each fruit.
+- **Summary table** — shows `PASS` or `CHECK` for each fruit based on the two validation metrics.
+
+The elbow plot is saved to:
+
+```text
+output/plots/clustering_validation_elbow.png
+```
+
+Important: these metrics validate cluster separation, not true fruit quality. If a fruit is marked `CHECK`, inspect `output/cluster_samples/` before using its pseudo-labels for CNN training.
+
 ### Manual Override
 
 If auto-assignment looks wrong after inspecting `output/cluster_samples/`, update `GRADE_OVERRIDE` in Cell 4:
@@ -249,6 +282,17 @@ Then re-run from Cell 10 (K-Means) onwards.
 - `cluster_id` — raw K-Means cluster (0, 1, or 2)
 - `grade` — A / B / C
 - `label` — e.g. `apple_A`, `orange_B` (9 classes total)
+
+### Plot Output Note
+
+Any cell that saves plots into `output/plots/` should ensure the folder exists first:
+
+```python
+plots_dir = Path(OUTPUT_DIR) / "plots"
+plots_dir.mkdir(parents=True, exist_ok=True)
+```
+
+This avoids `FileNotFoundError` when calling `plt.savefig(...)` before `output/plots/` has been created.
 
 ---
 
@@ -294,6 +338,7 @@ All configurable values live at the top of each notebook (Cell 4 in Step 1):
 | `N_CLUSTERS`     | `3`          | Number of K-Means clusters (= number of grades) |
 | `N_SAMPLES`      | `10`         | Sample images saved per cluster for inspection  |
 | `RANDOM_STATE`   | `42`         | Seed for reproducibility                        |
+| `APPLE_EXCLUDED_CLUSTER_FEATURES` | `{hue_mean, r_mean, g_mean, b_mean}` | Apple-only features excluded from K-Means to avoid clustering by red/green variety |
 | `GRADE_OVERRIDE` | `{}`         | Manual cluster→grade mapping per fruit          |
 
 ---
@@ -304,4 +349,6 @@ All configurable values live at the top of each notebook (Cell 4 in Step 1):
 - **Grading standard reference**: Codex Alimentarius / USDA fruit grading standards
 - **Why clustering first**: Removes human labeling bias; scalable to large datasets without manual annotation effort
 - **Why per-fruit clustering**: Prevents K-Means from grouping by fruit type instead of quality
+- **Why apple color features are excluded from clustering**: Apple color can represent cultivar/variety, not quality. A clean green apple should not be downgraded just because it is green.
+- **Phase 1 validation metrics**: Silhouette score, Davies-Bouldin index, and elbow plot are used to judge whether the pseudo-label clusters are reliable enough for supervised training.
 - **Evaluation metrics to report**: Accuracy, F1-score (macro), confusion matrix, Grad-CAM visualizations
