@@ -13,7 +13,7 @@ This project builds an automated **fruit quality grading system** using a two-ph
 - **Cluster-then-classify approach** — K-Means acts as an automatic labeler (pseudo-labeling), removing human labeling bias and scaling to large datasets.
 - **Per-fruit clustering** — K-Means is run separately for each fruit type to ensure it finds quality variation _within_ a fruit, not differences _between_ fruit types.
 - **Apple color-variety handling** — apple clustering excludes strong color-identity features (`hue_mean`, `r_mean`, `g_mean`, `b_mean`) so green apples are not automatically treated as lower quality. This reduces the chance that K-Means separates red vs green apple varieties instead of quality.
-- **Clustering validation added** — Step 1 now includes a validation cell that reports Silhouette score, Davies-Bouldin index, an elbow plot, and a PASS/CHECK summary per fruit.
+- **Clustering validation added** — Step 1 includes a validation cell that reports Silhouette score, Davies-Bouldin index, an elbow plot, and a PASS/CHECK summary per fruit.
 
 ---
 
@@ -60,93 +60,6 @@ dataset/
     ├── freshoranges/
     └── freshbananas/
 ```
-
-### Download Dataset with Kaggle API
-
-Run this once before Phase 1. It downloads the Kaggle dataset, extracts it, and places the files into the `dataset/` folder expected by the notebooks.
-
-#### 1. Install Kaggle API
-
-```bash
-pip install kaggle
-```
-
-#### 2. Add Kaggle credentials
-
-1. Go to Kaggle account settings: `https://www.kaggle.com/settings`
-2. Create/download an API token. This downloads `kaggle.json`.
-3. Put `kaggle.json` in:
-
-```text
-C:\Users\<your-username>\.kaggle\kaggle.json
-```
-
-For this machine, the expected path is:
-
-```text
-C:\Users\Rafael Po\.kaggle\kaggle.json
-```
-
-#### 3. Notebook download cell
-
-Add/run this near the top of the notebook before feature extraction:
-
-```python
-from pathlib import Path
-import zipfile
-import shutil
-
-from kaggle.api.kaggle_api_extended import KaggleApi
-
-DATASET_SLUG = "sriramr/fruits-fresh-and-rotten-for-classification"
-PROJECT_ROOT = Path(r"C:\Users\Rafael Po\Kuliah\Semester 6\DeepLearning\fruit-grading")
-RAW_DIR = PROJECT_ROOT / "raw"
-DATASET_ROOT = PROJECT_ROOT / "dataset"
-
-RAW_DIR.mkdir(exist_ok=True)
-DATASET_ROOT.mkdir(exist_ok=True)
-
-api = KaggleApi()
-api.authenticate()
-
-api.dataset_download_files(
-    DATASET_SLUG,
-    path=str(RAW_DIR),
-    unzip=False,
-)
-
-zip_path = RAW_DIR / "fruits-fresh-and-rotten-for-classification.zip"
-extract_dir = RAW_DIR / "fruits-fresh-and-rotten-for-classification"
-
-if not extract_dir.exists():
-    with zipfile.ZipFile(zip_path, "r") as zip_ref:
-        zip_ref.extractall(extract_dir)
-
-# Kaggle zip usually contains this nested folder.
-source_root = extract_dir / "dataset"
-if not source_root.exists():
-    source_root = extract_dir
-
-for split in ["train", "test"]:
-    for fruit_folder in ["freshapples", "freshoranges", "freshbananas"]:
-        src = source_root / split / fruit_folder
-        dst = DATASET_ROOT / split / fruit_folder
-        dst.parent.mkdir(parents=True, exist_ok=True)
-
-        if dst.exists():
-            shutil.rmtree(dst)
-
-        shutil.copytree(src, dst)
-
-print("Dataset ready:")
-for split in ["train", "test"]:
-    for fruit_folder in ["freshapples", "freshoranges", "freshbananas"]:
-        folder = DATASET_ROOT / split / fruit_folder
-        count = len(list(folder.glob("*")))
-        print(f"{split}/{fruit_folder}: {count} images")
-```
-
-After this cell succeeds, `DATASET_ROOT = "dataset"` can stay unchanged in the rest of the notebook.
 
 ---
 
@@ -201,7 +114,7 @@ For **apple K-Means clustering only**, the notebook excludes:
 - `g_mean`
 - `b_mean`
 
-Reason: the apple dataset can contain both red and green varieties. Green apples may be Granny Smith-style apples, not bad-quality apples. Removing these color-identity features helps the clustering focus more on quality signals such as brightness, saturation, color uniformity, texture smoothness, blemish ratio, edge density, and shape.
+Reason: the apple dataset can contain both red and green varieties. Green apples may be Granny Smith-style apples, not bad-quality apples. Removing these color-identity features helps clustering focus more on quality signals such as brightness, saturation, color uniformity, texture smoothness, blemish ratio, edge density, and shape.
 
 **Color (10 features)**
 
@@ -242,7 +155,7 @@ Highest score → Grade A, middle → Grade B, lowest → Grade C.
 
 ### Clustering Validation
 
-Step 1 now includes a **Clustering Validation** cell immediately after the K-Means cell.
+Step 1 includes a **Clustering Validation** cell immediately after the K-Means cell.
 
 It automatically computes:
 
@@ -296,19 +209,84 @@ This avoids `FileNotFoundError` when calling `plt.savefig(...)` before `output/p
 
 ---
 
-## Phase 2 Notebook — `fruit_grading_step2_cnn.ipynb` (TODO)
+## Phase 2 Notebook — `fruit_grading_step2_cnn.ipynb`
 
-### Plan
+### What it does
 
-- Load `output/labeled_dataset.csv`
-- Split into train / validation / test sets (stratified by `label`)
-- Fine-tune **EfficientNetB0** (pretrained on ImageNet) for 9-class classification
-- Evaluate with accuracy, F1-score, confusion matrix
-- Generate **Grad-CAM** visualizations to show which part of the fruit the model focuses on
+Trains an EfficientNetB0 CNN on the K-Means labeled data using two-phase transfer learning.
+
+### Two-Phase Training Strategy
+
+**Phase 1 — Frozen base** (`PHASE1_EPOCHS=15`, `LR=1e-3`)
+
+- EfficientNetB0 backbone is frozen
+- Only the custom classification head is trained
+- Fast convergence, prevents early destruction of pretrained weights
+
+**Phase 2 — Full fine-tuning** (`PHASE2_EPOCHS=30`, `LR=1e-4`)
+
+- Entire network is unfrozen
+- Trained at a much lower learning rate
+- Allows the backbone to adapt to fruit imagery
+
+### Model Architecture
+
+```
+Input (224x224x3)
+    ↓
+EfficientNetB0 (pretrained ImageNet, no top)
+    ↓
+GlobalAveragePooling2D
+    ↓
+BatchNormalization -> Dropout(0.4)
+    ↓
+Dense(256, relu)
+    ↓
+BatchNormalization -> Dropout(0.3)
+    ↓
+Dense(9, softmax)  <- 9 output classes
+```
+
+### Callbacks Used
+
+- `EarlyStopping` — stops if val_accuracy plateaus
+- `ModelCheckpoint` — saves best model automatically
+- `ReduceLROnPlateau` — halves LR when val_loss stalls
+
+### Data Augmentation (training only)
+
+- Random horizontal flip
+- Brightness jitter (+-20%)
+- Random rotation (+-15 degrees)
+
+### Evaluation Outputs
+
+- Accuracy, Precision, Recall, F1-score (macro)
+- Per-class classification report -> `output/classification_report.txt`
+- Confusion matrix (counts + normalized) -> `output/plots/confusion_matrix.png`
+- Per-fruit per-grade accuracy heatmap -> `output/plots/per_class_accuracy.png`
+- Grad-CAM visualizations -> `output/gradcam/gradcam_results.png`
+- Training curves -> `output/plots/training_curves.png`
+
+### Saved Model Files
+
+- `output/models/fruit_grader.keras` — best checkpoint
+- `output/models/fruit_grader_final.keras` — final model
+- `output/models/class_names.npy` — label encoder classes
 
 ### Output Classes (9 total)
 
 `apple_A`, `apple_B`, `apple_C`, `orange_A`, `orange_B`, `orange_C`, `banana_A`, `banana_B`, `banana_C`
+
+### Key Configuration (Cell 4)
+
+| Variable        | Default | Description                 |
+| --------------- | ------- | --------------------------- |
+| `PHASE1_EPOCHS` | `15`    | Epochs with frozen base     |
+| `PHASE2_EPOCHS` | `30`    | Epochs for full fine-tuning |
+| `PHASE1_LR`     | `1e-3`  | Learning rate Phase 1       |
+| `PHASE2_LR`     | `1e-4`  | Learning rate Phase 2       |
+| `BATCH_SIZE`    | `32`    | Training batch size         |
 
 ---
 
