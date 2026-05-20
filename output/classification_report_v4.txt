@@ -1,0 +1,15 @@
+              precision    recall  f1-score   support
+
+     apple_A       0.27      0.06      0.10       109
+     apple_B       0.29      0.65      0.40       100
+     apple_C       0.23      0.15      0.18       103
+    banana_A       0.18      0.42      0.25        84
+    banana_B       0.32      0.45      0.38       165
+    banana_C       0.00      0.00      0.00        47
+    orange_A       0.09      0.01      0.02        84
+    orange_B       0.15      0.01      0.02       176
+    orange_C       0.02      0.11      0.04        18
+
+    accuracy                           0.23       886
+   macro avg       0.17      0.21      0.15       886
+weighted avg       0.21      0.23      0.18       886
